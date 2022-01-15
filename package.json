@@ -1,6 +1,6 @@
 {
   "name": "aedes-persistence-cassandra",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Cassandra persistence for Aedes",
   "main": "persistence-cassandra.js",
   "repository": {
