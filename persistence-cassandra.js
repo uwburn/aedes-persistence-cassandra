@@ -24,18 +24,28 @@ function CassandraPersistence(opts) {
   }
 
   opts = opts || {};
-  opts.ttl = opts.ttl || {};
 
-  if (typeof opts.ttl.packets === "number") {
-    opts.ttl.packets = {
-      retained: opts.ttl.packets,
-      will: opts.ttl.packets,
-      outgoing: opts.ttl.packets,
-      incoming: opts.ttl.packets
+  let ttl = opts.ttl != null ? { ...opts.ttl } : {};
+  if (typeof ttl.packets === "number") {
+    ttl.packets = {
+      retained: ttl.packets,
+      will: ttl.packets,
+      outgoing: ttl.packets,
+      incoming: ttl.packets
     };
   }
+  else if (ttl.packets == null) {
+    ttl.packets = {};
+  }
+
+  ttl.packets.retained = ttl.packets.retained || 0;
+  ttl.packets.will = ttl.packets.will || 0;
+  ttl.packets.outgoing = ttl.packets.outgoing || 0;
+  ttl.packets.incoming = ttl.packets.incoming || 0;
+  ttl.subscriptions = ttl.subscriptions || 0;
 
   this._opts = opts;
+  this._opts.ttl = ttl;
   this._shutdownClient = false;
   this._client = null;
   this.retainedQueue = []; // used for storing retained packets with ordered bulks
@@ -104,7 +114,7 @@ async function processRetained(that) {
 
       if (p.packet.payload.length > 0) {
         batch.push({
-          query: "INSERT INTO retained (topic, broker_id, broker_counter, cmd, dup, qos, payload) VALUES (?, ?, ?, ?, ?, ?, ?)",
+          query: "INSERT INTO retained (topic, broker_id, broker_counter, cmd, dup, qos, payload) VALUES (?, ?, ?, ?, ?, ?, ?) USING TTL ?",
           params: [
             p.packet.topic,
             p.packet.brokerId,
@@ -112,14 +122,10 @@ async function processRetained(that) {
             p.packet.cmd,
             p.packet.dup,
             p.packet.qos,
-            p.packet.payload
+            p.packet.payload,
+            that._opts.ttl.packets.retained
           ]
         });
-
-        if (that._opts.ttl.packets && that._opts.ttl.packets.retained) {
-          batch[batch.length - 1].query += " USING TTL ?";
-          batch[batch.length - 1].params.push(that._opts.ttl.packets.retained);
-        }
       }
       else {
         batch.push({
@@ -187,31 +193,21 @@ CassandraPersistence.prototype.addSubscriptions = function(client, subs, cb) {
   const that = this;
   subs
     .forEach(function(sub) {
-      const params = [client.id, sub.topic, sub.qos];
+      const params = [client.id, sub.topic, sub.qos, that._opts.ttl.subscriptions];
 
       batch.push({
-        query: "INSERT INTO subscription (client_id, topic, qos) VALUES (?, ?, ?)",
+        query: "INSERT INTO subscription (client_id, topic, qos) VALUES (?, ?, ?) USING TTL ?",
         params
       }, {
-        query: "INSERT INTO subscription_by_topic (client_id, topic, qos) VALUES (?, ?, ?)",
+        query: "INSERT INTO subscription_by_topic (client_id, topic, qos) VALUES (?, ?, ?) USING TTL ?",
         params
       });
 
-      if (that._opts.ttl.subscriptions) {
-        batch[batch.length - 2].query += " USING TTL ?";
-        batch[batch.length - 1].query += " USING TTL ?";
-        params.push(that._opts.ttl.subscriptions);
-      }
-
       if (sub.qos > 0) {
         batch.push({
-          query: "INSERT INTO subscription_qos12 (client_id, topic, qos) VALUES (?, ?, ?)",
+          query: "INSERT INTO subscription_qos12 (client_id, topic, qos) VALUES (?, ?, ?) USING TTL ?",
           params
         });
-
-        if (that._opts.ttl.subscriptions) {
-          batch[batch.length - 1].query += " USING TTL ?";
-        }
       }
     });
 
@@ -248,7 +244,6 @@ CassandraPersistence.prototype.removeSubscriptions = function(client, subs, cb) 
     .forEach(function(topic) {
       const params = [client.id, topic];
 
-      // Rimuove la subscription con client id e topic
       batch.push({
         query: "DELETE FROM subscription WHERE client_id = ? AND topic = ?",
         params
@@ -363,37 +358,25 @@ CassandraPersistence.prototype.outgoingEnqueueCombi = function(subs, packet, cb)
   const that = this;
   const batch = [];
   subs.map(function(sub) {
-    const params = [sub.clientId, uuidv4(), newp.messageId, newp.brokerId, newp.brokerCounter, newp.cmd, newp.topic, newp.qos, newp.retain, newp.dup, newp.payload];
-    if (that._opts.ttl.packets && that._opts.ttl.packets.outgoing) {
-      params.push(that._opts.ttl.packets.outgoing);
-    }
+    const params = [sub.clientId, uuidv4(), newp.messageId, newp.brokerId, newp.brokerCounter, newp.cmd, newp.topic, newp.qos, newp.retain, newp.dup, newp.payload, that._opts.ttl.packets.outgoing];
 
     batch.push({
-      query: "INSERT INTO outgoing (client_id, ref, message_id, broker_id, broker_counter, cmd, topic, qos, retain, dup, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      query: "INSERT INTO outgoing (client_id, ref, message_id, broker_id, broker_counter, cmd, topic, qos, retain, dup, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) USING TTL ?",
       params
     });
-    if (that._opts.ttl.packets && that._opts.ttl.packets.outgoing) {
-      batch[batch.length - 1].query += " USING TTL ?";
-    }
 
     if (newp.messageId != null) {
       batch.push({
-        query: "INSERT INTO outgoing_by_message_id (client_id, ref, message_id, broker_id, broker_counter, cmd, topic, qos, retain, dup, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        query: "INSERT INTO outgoing_by_message_id (client_id, ref, message_id, broker_id, broker_counter, cmd, topic, qos, retain, dup, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) USING TTL ?",
         params
       });
-      if (that._opts.ttl.packets && that._opts.ttl.packets.outgoing) {
-        batch[batch.length - 1].query += " USING TTL ?";
-      }
     }
 
     if (newp.brokerId != null && newp.brokerCounter != null) {
       batch.push({
-        query: "INSERT INTO outgoing_by_broker (client_id, ref, message_id, broker_id, broker_counter, cmd, topic, qos, retain, dup, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        query: "INSERT INTO outgoing_by_broker (client_id, ref, message_id, broker_id, broker_counter, cmd, topic, qos, retain, dup, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) USING TTL ?",
         params
       });
-      if (that._opts.ttl.packets && that._opts.ttl.packets.outgoing) {
-        batch[batch.length - 1].query += " USING TTL ?";
-      }
     }
   });
 
@@ -458,8 +441,8 @@ async function updateWithMessageId(that, client, packet, cb) {
 
   const messageId = packet.messageId != null ? packet.messageId : (oldRow.message_id != null ? oldRow.message_id.toNumber() : null);
   batch.push({
-    query: "INSERT INTO outgoing_by_message_id (client_id, ref, message_id, broker_id, broker_counter, cmd, topic, qos, retain, dup, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-    params: [client.id, oldRow.ref, messageId, oldRow.broker_id, oldRow.broker_counter, oldRow.cmd, oldRow.topic, oldRow.qos, oldRow.retain, oldRow.dup, oldRow.payload]
+    query: "INSERT INTO outgoing_by_message_id (client_id, ref, message_id, broker_id, broker_counter, cmd, topic, qos, retain, dup, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) USING TTL ?",
+    params: [client.id, oldRow.ref, messageId, oldRow.broker_id, oldRow.broker_counter, oldRow.cmd, oldRow.topic, oldRow.qos, oldRow.retain, oldRow.dup, oldRow.payload, that._opts.ttl.packets.outgoing]
   }, {
     query: "UPDATE outgoing SET message_id = ? WHERE client_id = ? AND ref = ?",
     params: [
@@ -488,10 +471,10 @@ async function updatePacket(that, client, packet, cb) {
 
   const brokerId = packet.brokerId != null ? packet.brokerId : oldRow.broker_id;
   const brokerCounter = packet.brokerCounter != null ? packet.brokerCounter : (oldRow.broker_counter != null ? oldRow.broker_counter.toNumber() : null);
-  const params = [client.id, oldRow.ref, packet.messageId, brokerId, brokerCounter, packet.cmd, packet.topic, packet.qos, packet.retain, packet.dup, packet.payload];
+  const params = [client.id, oldRow.ref, packet.messageId, brokerId, brokerCounter, packet.cmd, packet.topic, packet.qos, packet.retain, packet.dup, packet.payload, that._opts.ttl.packets.outgoing];
 
   const batch = [{
-    query: "INSERT INTO outgoing_by_message_id (client_id, ref, message_id, broker_id, broker_counter, cmd, topic, qos, retain, dup, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    query: "INSERT INTO outgoing_by_message_id (client_id, ref, message_id, broker_id, broker_counter, cmd, topic, qos, retain, dup, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) USING TTL ?",
     params
   }, {
     query: "UPDATE outgoing SET message_id = ? WHERE client_id = ? AND ref = ?",
@@ -510,7 +493,7 @@ async function updatePacket(that, client, packet, cb) {
   }
 
   batch.push({
-    query: "INSERT INTO outgoing_by_broker (client_id, ref, message_id, broker_id, broker_counter, cmd, topic, qos, retain, dup, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    query: "INSERT INTO outgoing_by_broker (client_id, ref, message_id, broker_id, broker_counter, cmd, topic, qos, retain, dup, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) USING TTL ?",
     params
   });
 
@@ -589,7 +572,7 @@ CassandraPersistence.prototype.incomingStorePacket = function(client, packet, cb
   const newp = new Packet(packet);
   newp.messageId = packet.messageId;
 
-  let query = "INSERT INTO incoming (client_id, message_id, broker_id, broker_counter, cmd, topic, qos, retain, dup, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+  let query = "INSERT INTO incoming (client_id, message_id, broker_id, broker_counter, cmd, topic, qos, retain, dup, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) USING TTL ?";
   const params = [
     client.id,
     newp.messageId,
@@ -600,12 +583,9 @@ CassandraPersistence.prototype.incomingStorePacket = function(client, packet, cb
     newp.qos,
     newp.retain,
     newp.dup,
-    newp.payload
+    newp.payload,
+    this._opts.ttl.packets.incoming
   ];
-  if (this._opts.ttl.packets && this._opts.ttl.packets.incoming) {
-    query += " USING TTL ?";
-    params.push(this._opts.ttl.packets.incoming);
-  }
 
   this._client.execute(query, params, { prepare: true }, cb);
 };
@@ -655,19 +635,16 @@ CassandraPersistence.prototype.putWill = function(client, packet, cb) {
   packet.clientId = client.id;
   packet.brokerId = this.broker.id;
 
-  let query = "INSERT INTO last_will (client_id, broker_id, topic, qos, retain, payload) VALUES (?, ?, ?, ?, ?, ?)";
+  let query = "INSERT INTO last_will (client_id, broker_id, topic, qos, retain, payload) VALUES (?, ?, ?, ?, ?, ?) USING TTL ?";
   const params = [
     packet.clientId,
     packet.brokerId,
     packet.topic,
     packet.qos,
     packet.retain,
-    packet.payload
+    packet.payload,
+    this._opts.ttl.packets.will
   ];
-  if (this._opts.ttl.packets && this._opts.ttl.packets.will) {
-    query += " USING TTL ?";
-    params.push(this._opts.ttl.packets.will);
-  }
 
   this._client.execute(query, params, { prepare: true }, function(err) {
     cb(err, client);
