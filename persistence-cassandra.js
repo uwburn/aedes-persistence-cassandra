@@ -431,6 +431,12 @@ async function updateWithMessageId(that, client, packet, cb) {
     packet.brokerCounter
   ], { prepare: true });
 
+  const oldRow = result.rows[0];
+  if (oldRow == null) {
+    cb(new Error("Existing outgoing message not found"));
+    return;
+  }
+
   const batch = [
     {
       query: "UPDATE outgoing_by_broker SET message_id = ? WHERE client_id = ? AND broker_id = ? AND broker_counter = ?",
@@ -443,31 +449,25 @@ async function updateWithMessageId(that, client, packet, cb) {
     }
   ];
 
-  const oldRow = result.rows[0];
-
-  if (oldRow || packet.messageId) {
-    if (oldRow && oldRow.messageId != null && oldRow.message_id.toNumber() != packet.messageId) {
-      batch.push({
-        query: "DELETE FROM outgoing_by_message_id WHERE client_id = ? AND message_id = ?",
-        params: [oldRow.client_id, oldRow.message_id.toNumber()]
-      });
-    }
-
-    if (oldRow) {
-      const messageId = packet.messageId != null ? packet.messageId : (oldRow.message_id != null ? oldRow.message_id.toNumber() : null);
-      batch.push({
-        query: "INSERT INTO outgoing_by_message_id (client_id, ref, message_id, broker_id, broker_counter, cmd, topic, qos, retain, dup, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        params: [client.id, oldRow.ref, messageId, oldRow.broker_id, oldRow.broker_counter, oldRow.cmd, oldRow.topic, oldRow.qos, oldRow.retain, oldRow.dup, oldRow.payload]
-      }, {
-        query: "UPDATE outgoing SET message_id = ? WHERE client_id = ? AND ref = ?",
-        params: [
-          packet.messageId,
-          client.id,
-          oldRow.ref
-        ]
-      });
-    }
+  if (oldRow.messageId != null && oldRow.message_id.toNumber() != packet.messageId) {
+    batch.push({
+      query: "DELETE FROM outgoing_by_message_id WHERE client_id = ? AND message_id = ?",
+      params: [oldRow.client_id, oldRow.message_id.toNumber()]
+    });
   }
+
+  const messageId = packet.messageId != null ? packet.messageId : (oldRow.message_id != null ? oldRow.message_id.toNumber() : null);
+  batch.push({
+    query: "INSERT INTO outgoing_by_message_id (client_id, ref, message_id, broker_id, broker_counter, cmd, topic, qos, retain, dup, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    params: [client.id, oldRow.ref, messageId, oldRow.broker_id, oldRow.broker_counter, oldRow.cmd, oldRow.topic, oldRow.qos, oldRow.retain, oldRow.dup, oldRow.payload]
+  }, {
+    query: "UPDATE outgoing SET message_id = ? WHERE client_id = ? AND ref = ?",
+    params: [
+      packet.messageId,
+      client.id,
+      oldRow.ref
+    ]
+  });
 
   that._client.batch(batch, { prepare: true }, function(err) {
     cb(err, client, packet);
@@ -480,41 +480,39 @@ async function updatePacket(that, client, packet, cb) {
     packet.messageId
   ], { prepare: true });
 
-  const batch = [];
-
   const oldRow = result.rows[0];
+  if (oldRow == null) {
+    cb(new Error("Existing outgoing message not found"));
+    return;
+  }
 
-  if (oldRow || (packet.brokerId && packet.brokerCounter)) {
-    const brokerId = packet.brokerId != null ? packet.brokerId : oldRow.broker_id;
-    const brokerCounter = packet.brokerCounter != null ? packet.brokerCounter : (oldRow.broker_counter != null ? oldRow.broker_counter.toNumber() : null);
-    const params = [client.id, oldRow.ref, packet.messageId, brokerId, brokerCounter, packet.cmd, packet.topic, packet.qos, packet.retain, packet.dup, packet.payload];
+  const brokerId = packet.brokerId != null ? packet.brokerId : oldRow.broker_id;
+  const brokerCounter = packet.brokerCounter != null ? packet.brokerCounter : (oldRow.broker_counter != null ? oldRow.broker_counter.toNumber() : null);
+  const params = [client.id, oldRow.ref, packet.messageId, brokerId, brokerCounter, packet.cmd, packet.topic, packet.qos, packet.retain, packet.dup, packet.payload];
 
-    if (oldRow) {
-      batch.push({
-        query: "INSERT INTO outgoing_by_message_id (client_id, ref, message_id, broker_id, broker_counter, cmd, topic, qos, retain, dup, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        params
-      }, {
-        query: "UPDATE outgoing SET message_id = ? WHERE client_id = ? AND ref = ?",
-        params: [
-          packet.messageId,
-          client.id,
-          oldRow.ref
-        ]
-      });
-    }
+  const batch = [{
+    query: "INSERT INTO outgoing_by_message_id (client_id, ref, message_id, broker_id, broker_counter, cmd, topic, qos, retain, dup, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    params
+  }, {
+    query: "UPDATE outgoing SET message_id = ? WHERE client_id = ? AND ref = ?",
+    params: [
+      packet.messageId,
+      client.id,
+      oldRow.ref
+    ]
+  }];
 
-    if (oldRow && oldRow.broker_id!= null && oldRow.broker_counter != null && (oldRow.broker_id != packet.brokerId || oldRow.broker_counter.toNumber() != packet.brokerCounter)) {
-      batch.push({
-        query: "DELETE FROM outgoing_by_broker WHERE client_id = ? AND broker_id = ? AND broker_counter = ?",
-        params: [oldRow.client_id, oldRow.broker_id, oldRow.broker_counter.toNumber()]
-      });
-    }
-
+  if (oldRow.broker_id!= null && oldRow.broker_counter != null && (oldRow.broker_id != packet.brokerId || oldRow.broker_counter.toNumber() != packet.brokerCounter)) {
     batch.push({
-      query: "INSERT INTO outgoing_by_broker (client_id, ref, message_id, broker_id, broker_counter, cmd, topic, qos, retain, dup, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-      params
+      query: "DELETE FROM outgoing_by_broker WHERE client_id = ? AND broker_id = ? AND broker_counter = ?",
+      params: [oldRow.client_id, oldRow.broker_id, oldRow.broker_counter.toNumber()]
     });
   }
+
+  batch.push({
+    query: "INSERT INTO outgoing_by_broker (client_id, ref, message_id, broker_id, broker_counter, cmd, topic, qos, retain, dup, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    params
+  });
 
   that._client.batch(batch, { prepare: true }, function(err) {
     cb(err, client, packet);
@@ -552,6 +550,11 @@ CassandraPersistence.prototype.outgoingClearMessageId = async function(client, p
   }
   catch (err) {
     cb(err);
+  }
+
+  if (oldRow == null) {
+    cb(new Error("Existing outgoing message not found"));
+    return;
   }
 
   const batch = [
