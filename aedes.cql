@@ -42,6 +42,22 @@ CREATE TABLE last_will(
 
 CREATE TABLE outgoing(
 	client_id TEXT,
+	ref UUID,
+	message_id BIGINT,
+	broker_id TEXT,
+	broker_counter BIGINT,
+	cmd TEXT,
+	topic TEXT,
+	qos INT,
+	retain BOOLEAN,
+	dup BOOLEAN,
+	payload BLOB,
+	PRIMARY KEY(client_id, ref)
+);
+
+CREATE TABLE outgoing_by_message_id(
+	client_id TEXT,
+	ref UUID,
 	message_id BIGINT,
 	broker_id TEXT,
 	broker_counter BIGINT,
@@ -56,6 +72,7 @@ CREATE TABLE outgoing(
 
 CREATE TABLE outgoing_by_broker(
 	client_id TEXT,
+	ref UUID,
 	broker_id TEXT,
 	broker_counter BIGINT,
 	message_id BIGINT,

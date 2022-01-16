@@ -7,6 +7,7 @@ const cassandra = require("cassandra-driver");
 const pump = require("pump");
 const through = require("through2");
 const Qlobber = require("qlobber").Qlobber;
+const uuidv4 = require("uuid").v4;
 
 const qlobberOpts = {
   separator: "/",
@@ -362,14 +363,22 @@ CassandraPersistence.prototype.outgoingEnqueueCombi = function(subs, packet, cb)
   const that = this;
   const batch = [];
   subs.map(function(sub) {
-    const params = [sub.clientId, newp.messageId, newp.brokerId, newp.brokerCounter, newp.cmd, newp.topic, newp.qos, newp.retain, newp.dup, newp.payload];
+    const params = [sub.clientId, uuidv4(), newp.messageId, newp.brokerId, newp.brokerCounter, newp.cmd, newp.topic, newp.qos, newp.retain, newp.dup, newp.payload];
     if (that._opts.ttl.packets && that._opts.ttl.packets.outgoing) {
       params.push(that._opts.ttl.packets.outgoing);
     }
 
+    batch.push({
+      query: "INSERT INTO outgoing (client_id, ref, message_id, broker_id, broker_counter, cmd, topic, qos, retain, dup, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      params
+    });
+    if (that._opts.ttl.packets && that._opts.ttl.packets.outgoing) {
+      batch[batch.length - 1].query += " USING TTL ?";
+    }
+
     if (newp.messageId != null) {
       batch.push({
-        query: "INSERT INTO outgoing (client_id, message_id, broker_id, broker_counter, cmd, topic, qos, retain, dup, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        query: "INSERT INTO outgoing_by_message_id (client_id, ref, message_id, broker_id, broker_counter, cmd, topic, qos, retain, dup, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         params
       });
       if (that._opts.ttl.packets && that._opts.ttl.packets.outgoing) {
@@ -379,7 +388,7 @@ CassandraPersistence.prototype.outgoingEnqueueCombi = function(subs, packet, cb)
 
     if (newp.brokerId != null && newp.brokerCounter != null) {
       batch.push({
-        query: "INSERT INTO outgoing_by_broker (client_id, message_id, broker_id, broker_counter, cmd, topic, qos, retain, dup, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        query: "INSERT INTO outgoing_by_broker (client_id, ref, message_id, broker_id, broker_counter, cmd, topic, qos, retain, dup, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         params
       });
       if (that._opts.ttl.packets && that._opts.ttl.packets.outgoing) {
@@ -435,19 +444,29 @@ async function updateWithMessageId(that, client, packet, cb) {
   ];
 
   const oldRow = result.rows[0];
+
   if (oldRow || packet.messageId) {
     if (oldRow && oldRow.messageId != null && oldRow.message_id.toNumber() != packet.messageId) {
       batch.push({
-        query: "DELETE FROM outgoing WHERE client_id = ? AND message_id = ?",
+        query: "DELETE FROM outgoing_by_message_id WHERE client_id = ? AND message_id = ?",
         params: [oldRow.client_id, oldRow.message_id.toNumber()]
       });
     }
 
-    const messageId = packet.messageId != null ? packet.messageId : (oldRow.message_id != null ? oldRow.message_id.toNumber() : null);
-    batch.push({
-      query: "INSERT INTO outgoing (client_id, message_id, broker_id, broker_counter, cmd, topic, qos, retain, dup, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-      params: [client.id, messageId, oldRow.broker_id, oldRow.broker_counter, oldRow.cmd, oldRow.topic, oldRow.qos, oldRow.retain, oldRow.dup, oldRow.payload]
-    });
+    if (oldRow) {
+      const messageId = packet.messageId != null ? packet.messageId : (oldRow.message_id != null ? oldRow.message_id.toNumber() : null);
+      batch.push({
+        query: "INSERT INTO outgoing_by_message_id (client_id, ref, message_id, broker_id, broker_counter, cmd, topic, qos, retain, dup, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        params: [client.id, oldRow.ref, messageId, oldRow.broker_id, oldRow.broker_counter, oldRow.cmd, oldRow.topic, oldRow.qos, oldRow.retain, oldRow.dup, oldRow.payload]
+      }, {
+        query: "UPDATE outgoing SET message_id = ? WHERE client_id = ? AND ref = ?",
+        params: [
+          packet.messageId,
+          client.id,
+          oldRow.ref
+        ]
+      });
+    }
   }
 
   that._client.batch(batch, { prepare: true }, function(err) {
@@ -456,20 +475,34 @@ async function updateWithMessageId(that, client, packet, cb) {
 }
 
 async function updatePacket(that, client, packet, cb) {
-  const result = await that._client.execute("SELECT * FROM outgoing WHERE client_id = ? AND message_id = ?", [
+  const result = await that._client.execute("SELECT * FROM outgoing_by_message_id WHERE client_id = ? AND message_id = ?", [
     client.id,
     packet.messageId
   ], { prepare: true });
 
-  const batch = [
-    {
-      query: "INSERT INTO outgoing (client_id, message_id, broker_id, broker_counter, cmd, topic, qos, retain, dup, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-      params: [client.id, packet.messageId, packet.brokerId, packet.brokerCounter, packet.cmd, packet.topic, packet.qos, packet.retain, packet.dup, packet.payload]
-    }
-  ];
+  const batch = [];
 
   const oldRow = result.rows[0];
+
   if (oldRow || (packet.brokerId && packet.brokerCounter)) {
+    const brokerId = packet.brokerId != null ? packet.brokerId : oldRow.broker_id;
+    const brokerCounter = packet.brokerCounter != null ? packet.brokerCounter : (oldRow.broker_counter != null ? oldRow.broker_counter.toNumber() : null);
+    const params = [client.id, oldRow.ref, packet.messageId, brokerId, brokerCounter, packet.cmd, packet.topic, packet.qos, packet.retain, packet.dup, packet.payload];
+
+    if (oldRow) {
+      batch.push({
+        query: "INSERT INTO outgoing_by_message_id (client_id, ref, message_id, broker_id, broker_counter, cmd, topic, qos, retain, dup, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        params
+      }, {
+        query: "UPDATE outgoing SET message_id = ? WHERE client_id = ? AND ref = ?",
+        params: [
+          packet.messageId,
+          client.id,
+          oldRow.ref
+        ]
+      });
+    }
+
     if (oldRow && oldRow.broker_id!= null && oldRow.broker_counter != null && (oldRow.broker_id != packet.brokerId || oldRow.broker_counter.toNumber() != packet.brokerCounter)) {
       batch.push({
         query: "DELETE FROM outgoing_by_broker WHERE client_id = ? AND broker_id = ? AND broker_counter = ?",
@@ -477,11 +510,9 @@ async function updatePacket(that, client, packet, cb) {
       });
     }
 
-    const brokerId = packet.brokerId != null ? packet.brokerId : oldRow.broker_id;
-    const brokerCounter = packet.brokerCounter != null ? packet.brokerCounter : (oldRow.broker_counter != null ? oldRow.broker_counter.toNumber() : null);
     batch.push({
-      query: "INSERT INTO outgoing_by_broker (client_id, message_id, broker_id, broker_counter, cmd, topic, qos, retain, dup, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-      params: [client.id, packet.messageId, brokerId, brokerCounter, packet.cmd, packet.topic, packet.qos, packet.retain, packet.dup, packet.payload]
+      query: "INSERT INTO outgoing_by_broker (client_id, ref, message_id, broker_id, broker_counter, cmd, topic, qos, retain, dup, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      params
     });
   }
 
@@ -509,31 +540,40 @@ CassandraPersistence.prototype.outgoingClearMessageId = async function(client, p
     return;
   }
 
-  let outgoingPacket;
+  let oldRow;
   try {
-    const result = await this._client.execute("SELECT * FROM outgoing WHERE client_id = ? AND message_id = ?", [client.id, packet.messageId], { prepare: true });
+    const result = await this._client.execute("SELECT * FROM outgoing_by_message_id WHERE client_id = ? AND message_id = ?", [client.id, packet.messageId], { prepare: true });
 
     if (!result.rows.length) {
       return cb(null);
     }
 
-    outgoingPacket = asPacket(result.rows[0]);
+    oldRow = result.rows[0];
   }
   catch (err) {
     cb(err);
   }
 
-  this._client.batch([
+  const batch = [
     {
-      query: "DELETE FROM outgoing WHERE client_id = ? AND message_id = ?",
-      params: [client.id, outgoingPacket.messageId]
+      query: "DELETE FROM outgoing WHERE client_id = ? AND ref = ?",
+      params: [client.id, oldRow.ref]
     },
     {
-      query: "DELETE FROM outgoing_by_broker WHERE client_id = ? AND broker_id = ? AND broker_counter = ?",
-      params: [client.id, outgoingPacket.brokerId, outgoingPacket.brokerCounter]
+      query: "DELETE FROM outgoing_by_message_id WHERE client_id = ? AND message_id = ?",
+      params: [client.id, oldRow.message_id.toNumber()]
     }
-  ], { prepare: true }, function(err) {
-    cb(err, outgoingPacket);
+  ];
+
+  if (oldRow.broker_id != null && oldRow.broker_counter != null) {
+    batch.push({
+      query: "DELETE FROM outgoing_by_broker WHERE client_id = ? AND broker_id = ? AND broker_counter = ?",
+      params: [client.id, oldRow.broker_id, oldRow.broker_counter.toNumber()]
+    });
+  }
+
+  this._client.batch(batch, { prepare: true }, function(err) {
+    cb(err, asPacket(oldRow));
   });
 };
 
