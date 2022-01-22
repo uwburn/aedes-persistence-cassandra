@@ -191,6 +191,13 @@ CassandraPersistence.prototype.addSubscriptions = function(client, subs, cb) {
   let errored = false;
   const batch = [];
   const that = this;
+
+  let uniqSubs = {};
+  for (let s of subs) {
+    uniqSubs[s.topic] = s;
+  }
+  subs = Object.values(uniqSubs);
+
   subs
     .forEach(function(sub) {
       const params = [client.id, sub.topic, sub.qos, that._opts.ttl.subscriptions];
