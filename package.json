@@ -5,7 +5,7 @@
   "main": "persistence-cassandra.js",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/mcollina/aedes-persistence-mongodb.git"
+    "url": "git+https://github.com/uwburn/aedes-persistence-cassandra.git"
   },
   "engines": {
     "node": ">=8.0.0"
