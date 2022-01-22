@@ -216,6 +216,12 @@ CassandraPersistence.prototype.addSubscriptions = function(client, subs, cb) {
           params
         });
       }
+      else {
+        batch.push({
+          query: "DELETE FROM subscription_qos12 WHERE client_id = ? AND topic = ?",
+          params: [client.id, sub.topic]
+        });
+      }
     });
 
   this._client.batch(batch, { prepare: true }).then(function() {
