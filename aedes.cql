@@ -27,6 +27,7 @@ CREATE TABLE retained(
 	dup BOOLEAN,
 	qos INT,
 	payload BLOB,
+	payload_type TEXT,
 	PRIMARY KEY(topic)
 );
 
@@ -37,6 +38,7 @@ CREATE TABLE last_will(
 	qos INT,
 	retain BOOLEAN,
 	payload BLOB,
+	payload_type TEXT,
 	PRIMARY KEY(client_id)
 );
 
@@ -52,6 +54,7 @@ CREATE TABLE outgoing(
 	retain BOOLEAN,
 	dup BOOLEAN,
 	payload BLOB,
+	payload_type TEXT,
 	PRIMARY KEY(client_id, ref)
 );
 
@@ -67,6 +70,7 @@ CREATE TABLE outgoing_by_message_id(
 	retain BOOLEAN,
 	dup BOOLEAN,
 	payload BLOB,
+	payload_type TEXT,
 	PRIMARY KEY(client_id, message_id)
 );
 
@@ -82,6 +86,7 @@ CREATE TABLE outgoing_by_broker(
 	retain BOOLEAN,
 	dup BOOLEAN,
 	payload BLOB,
+	payload_type TEXT,
 	PRIMARY KEY(client_id, broker_id, broker_counter)
 );
 
@@ -96,5 +101,6 @@ CREATE TABLE incoming(
 	retain BOOLEAN,
 	dup BOOLEAN,
 	payload BLOB,
+	payload_type TEXT,
 	PRIMARY KEY(client_id, message_id)
 );
