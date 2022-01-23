@@ -27,12 +27,7 @@ CREATE TABLE retained(
 
 CREATE TABLE last_will(
 	client_id TEXT,
-	broker_id TEXT,
-	topic TEXT,
-	qos INT,
-	retain BOOLEAN,
-	payload BLOB,
-	payload_type TEXT,
+	packet BLOB,
 	PRIMARY KEY(client_id)
 );
 

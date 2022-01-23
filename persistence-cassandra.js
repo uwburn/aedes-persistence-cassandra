@@ -80,17 +80,6 @@ function asPacket(row) {
   return packet;
 }
 
-function asLastWill(row) {
-  return {
-    clientId: row.client_id,
-    brokerId: row.broker_id,
-    topic: row.topic,
-    payload: parsePayload(row),
-    qos: row.qos,
-    retain: row.retain
-  };
-}
-
 function CassandraPersistence(opts) {
   if (!(this instanceof CassandraPersistence)) {
     return new CassandraPersistence(opts);
@@ -660,6 +649,13 @@ CassandraPersistence.prototype.incomingDelPacket = function(client, packet, cb) 
   ], { prepare: true }, cb);
 };
 
+function asLastWill(row) {
+  return {
+    ...msgpack.decode(row.packet),
+    clientId: row.client_id
+  };
+}
+
 CassandraPersistence.prototype.putWill = function(client, packet, cb) {
   if (!this.ready) {
     this.once("ready", this.putWill.bind(this, client, packet, cb));
@@ -669,17 +665,10 @@ CassandraPersistence.prototype.putWill = function(client, packet, cb) {
   packet.clientId = client.id;
   packet.brokerId = this.broker.id;
 
-  const wp = wrapPayload(packet.payload);
-
-  let query = "INSERT INTO last_will (client_id, broker_id, topic, qos, retain, payload, payload_type) VALUES (?, ?, ?, ?, ?, ?, ?) USING TTL ?";
+  let query = "INSERT INTO last_will (client_id, packet) VALUES (?, ?) USING TTL ?";
   const params = [
     packet.clientId,
-    packet.brokerId,
-    packet.topic,
-    packet.qos,
-    packet.retain,
-    wp.payload,
-    wp.type,
+    msgpack.encode(packet),
     this._opts.ttl.packets.will
   ];
 
@@ -695,12 +684,14 @@ CassandraPersistence.prototype.getWill = function(client, cb) {
       return;
     }
 
-    if (!result.rows.length) {
+    const row = result.rows[0];
+
+    if (row == null) {
       cb(null, null, client);
       return;
     }
 
-    cb(null, asLastWill(result.rows[0]), client);
+    cb(null, asLastWill(row), client);
   });
 };
 
@@ -724,12 +715,14 @@ CassandraPersistence.prototype.streamWill = function(brokers) {
   const brokerIds = brokers != null ? Object.keys(brokers) : null;
 
   return pump(stream, through.obj(function(row, enc, cb) {
-    if (brokerIds != null && brokerIds.includes(row.broker_id)) {
+    let lastWill = asLastWill(row);
+
+    if (brokerIds != null && brokerIds.includes(lastWill.brokerId)) {
       cb(null);
       return;
     }
 
-    cb(null, asLastWill(row));
+    cb(null, lastWill);
   }));
 };
 
