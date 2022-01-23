@@ -526,12 +526,8 @@ async function updatePacket(that, client, packet, cb) {
     query: "INSERT INTO outgoing_by_message_id (client_id, ref, message_id, broker_id, broker_counter, cmd, topic, qos, retain, dup, payload, payload_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) USING TTL ?",
     params
   }, {
-    query: "UPDATE outgoing SET message_id = ? WHERE client_id = ? AND ref = ?",
-    params: [
-      packet.messageId,
-      client.id,
-      oldRow.ref
-    ]
+    query: "INSERT INTO outgoing (client_id, ref, message_id, broker_id, broker_counter, cmd, topic, qos, retain, dup, payload, payload_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) USING TTL ?",
+    params
   }];
 
   if (oldRow.broker_id!= null && oldRow.broker_counter != null && (oldRow.broker_id != packet.brokerId || oldRow.broker_counter.toNumber() != packet.brokerCounter)) {
