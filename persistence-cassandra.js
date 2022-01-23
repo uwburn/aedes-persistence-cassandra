@@ -177,10 +177,7 @@ CassandraPersistence.prototype.storeRetained = function(packet, cb) {
 
 function filterAndParseRetained(row, enc, cb) {
   if (this.matcher.test(row.topic)) {
-    this.push({
-      ...msgpack.decode(row.packet),
-      topic: row.topic
-    });
+    this.push(decodeRow(row));
   }
   cb();
 }
@@ -645,13 +642,6 @@ CassandraPersistence.prototype.incomingDelPacket = function(client, packet, cb) 
   ], { prepare: true }, cb);
 };
 
-function asLastWill(row) {
-  return {
-    ...msgpack.decode(row.packet),
-    clientId: row.client_id
-  };
-}
-
 CassandraPersistence.prototype.putWill = function(client, packet, cb) {
   if (!this.ready) {
     this.once("ready", this.putWill.bind(this, client, packet, cb));
@@ -687,7 +677,7 @@ CassandraPersistence.prototype.getWill = function(client, cb) {
       return;
     }
 
-    cb(null, asLastWill(row), client);
+    cb(null, decodeRow(row), client);
   });
 };
 
@@ -711,7 +701,7 @@ CassandraPersistence.prototype.streamWill = function(brokers) {
   const brokerIds = brokers != null ? Object.keys(brokers) : null;
 
   return pump(stream, through.obj(function(row, enc, cb) {
-    let lastWill = asLastWill(row);
+    let lastWill = decodeRow(row);
 
     if (brokerIds != null && brokerIds.includes(lastWill.brokerId)) {
       cb(null);
