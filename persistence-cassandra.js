@@ -7,7 +7,7 @@ const cassandra = require("cassandra-driver");
 const pump = require("pump");
 const through = require("through2");
 const Qlobber = require("qlobber").Qlobber;
-const uuidv4 = require("uuid").v4;
+const uuidv1 = require("uuid").v1;
 
 const qlobberOpts = {
   separator: "/",
@@ -420,7 +420,7 @@ CassandraPersistence.prototype.outgoingEnqueueCombi = function(subs, packet, cb)
   const batch = [];
   subs.map(function(sub) {
     const wp = wrapPayload(newp.payload);
-    const params = [sub.clientId, uuidv4(), newp.messageId, newp.brokerId, newp.brokerCounter, newp.cmd, newp.topic, newp.qos, newp.retain, newp.dup, wp.payload, wp.type, that._opts.ttl.packets.outgoing];
+    const params = [sub.clientId, uuidv1(), newp.messageId, newp.brokerId, newp.brokerCounter, newp.cmd, newp.topic, newp.qos, newp.retain, newp.dup, wp.payload, wp.type, that._opts.ttl.packets.outgoing];
 
     batch.push({
       query: "INSERT INTO outgoing (client_id, ref, message_id, broker_id, broker_counter, cmd, topic, qos, retain, dup, payload, payload_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) USING TTL ?",
