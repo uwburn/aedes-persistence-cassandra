@@ -82,14 +82,6 @@ CREATE TABLE outgoing_by_broker(
 CREATE TABLE incoming(
 	client_id TEXT,
 	message_id BIGINT,
-	broker_id TEXT,
-	broker_counter BIGINT,
-	cmd TEXT,
-	topic TEXT,
-	qos INT,
-	retain BOOLEAN,
-	dup BOOLEAN,
-	payload BLOB,
-	payload_type TEXT,
+	packet BLOB,
 	PRIMARY KEY(client_id, message_id)
 );

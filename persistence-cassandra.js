@@ -49,6 +49,10 @@ function parsePayload(row) {
   }
 }
 
+function decodeRow(row) {
+  return msgpack.decode(row.packet);
+}
+
 function asPacket(row) {
   let messageId = row.message_id != null ? row.message_id.toNumber() : null;
 
@@ -592,21 +596,11 @@ CassandraPersistence.prototype.incomingStorePacket = function(client, packet, cb
   const newp = new Packet(packet);
   newp.messageId = packet.messageId;
 
-  const wp = wrapPayload(newp.payload);
-
-  let query = "INSERT INTO incoming (client_id, message_id, broker_id, broker_counter, cmd, topic, qos, retain, dup, payload, payload_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) USING TTL ?";
+  let query = "INSERT INTO incoming (client_id, message_id, packet) VALUES (?, ?, ?) USING TTL ?";
   const params = [
     client.id,
     newp.messageId,
-    newp.brokerId,
-    newp.brokerCounter,
-    newp.cmd,
-    newp.topic,
-    newp.qos,
-    newp.retain,
-    newp.dup,
-    wp.payload,
-    wp.type,
+    msgpack.encode(newp),
     this._opts.ttl.packets.incoming
   ];
 
@@ -628,12 +622,14 @@ CassandraPersistence.prototype.incomingGetPacket = function(client, packet, cb) 
       return;
     }
 
-    if (!result.rows.length) {
+    const row = result.rows[0];
+
+    if (row == null) {
       cb(new Error("packet not found"), null, client);
       return;
     }
 
-    cb(null, asPacket(result.rows[0]), client);
+    cb(null, decodeRow(row), client);
   });
 };
 
