@@ -39,28 +39,45 @@ function wrapPayload(payload) {
   }
 }
 
-function asPacket(row) {
-  let payload;
+function parsePayload(row) {
   switch (row.payload_type) {
   case "B":
-    payload = row.payload;
-    break;
+    return row.payload;
   case "S":
-    payload = row.payload.toString();
+    return row.payload.toString();
+  }
+}
+
+function asPacket(row) {
+  let messageId = row.message_id != null ? row.message_id.toNumber() : null;
+
+  let packet;
+  switch (row.cmd) {
+  case "pubrel":
+  case "pubrec":
+  case "pubcomb":
+    packet = {
+      cmd: row.cmd
+    };
+    break;
+  default:
+    packet = new Packet({
+      brokerId: row.broker_id,
+      brokerCounter: row.broker_counter != null ? row.broker_counter.toNumber() : null,
+      cmd: row.cmd,
+      topic: row.topic,
+      qos: row.qos,
+      retain: row.retain,
+      dup: row.dup,
+      payload: parsePayload(row)
+    });
     break;
   }
 
-  return /*new Packet(*/{
-    messageId: row.message_id != null ? row.message_id.toNumber() : null,
-    brokerId: row.broker_id,
-    brokerCounter: row.broker_counter != null ? row.broker_counter.toNumber() : null,
-    cmd: row.cmd,
-    topic: row.topic,
-    qos: row.qos,
-    retain: row.retain,
-    dup: row.dup,
-    payload: payload
-  }/*)*/;
+  packet.messageId = messageId;
+
+  return packet;
+}
 }
 
 function CassandraPersistence(opts) {
