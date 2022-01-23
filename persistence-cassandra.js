@@ -534,6 +534,11 @@ CassandraPersistence.prototype.outgoingClearMessageId = async function(client, p
     return;
   }
 
+  if (packet.messageId == null) {
+    cb(null, null);
+    return;
+  }
+
   let oldRow;
   try {
     const result = await this._client.execute("SELECT * FROM outgoing_by_message_id WHERE client_id = ? AND message_id = ?", [client.id, packet.messageId], { prepare: true });
@@ -549,7 +554,7 @@ CassandraPersistence.prototype.outgoingClearMessageId = async function(client, p
   }
 
   if (oldRow == null) {
-    cb(new Error("Existing outgoing message not found"));
+    cb(null, null);
     return;
   }
 
