@@ -19,66 +19,20 @@ const qlobberOpts = {
 
 function nop() { }
 
-function wrapPayload(payload) {
-  if (Buffer.isBuffer(payload)) {
-    return {
-      type: "B",
-      payload
-    };
-  }
-  else if (typeof payload === "string" || payload instanceof String) {
-    return {
-      type: "S",
-      payload: Buffer.from(payload)
-    };
-  }
-  else {
-    return {
-      type: "U",
-      payload: null
-    };
-  }
-}
-
-function parsePayload(row) {
-  switch (row.payload_type) {
-  case "B":
-    return row.payload;
-  case "S":
-    return row.payload.toString();
-  }
-}
-
 function decodeRow(row) {
   return msgpack.decode(row.packet);
 }
 
 function asPacket(row) {
-  let messageId = row.message_id != null ? row.message_id.toNumber() : null;
+  const decodedPacket = decodeRow(row);
 
-  let packet;
-  switch (row.cmd) {
-  case "pubrel":
-  case "pubrec":
-  case "pubcomb":
-    packet = {
-      cmd: row.cmd
-    };
-    break;
-  default:
-    packet = new Packet({
-      brokerId: row.broker_id,
-      brokerCounter: row.broker_counter != null ? row.broker_counter.toNumber() : null,
-      cmd: row.cmd,
-      topic: row.topic,
-      qos: row.qos,
-      retain: row.retain,
-      dup: row.dup,
-      payload: parsePayload(row)
-    });
-    break;
+  if (decodedPacket.payload == null) {
+    return decodedPacket;
   }
 
+  const messageId = decodedPacket.messageId;
+
+  const packet = new Packet(decodedPacket);
   packet.messageId = messageId;
 
   return packet;
@@ -385,32 +339,34 @@ CassandraPersistence.prototype.outgoingEnqueueCombi = function(subs, packet, cb)
     return cb(null, packet);
   }
 
-  const newp = new Packet(packet);
+  const encodedPacket = msgpack.encode(new Packet(packet));
 
   const that = this;
   const batch = [];
   subs.map(function(sub) {
-    const wp = wrapPayload(newp.payload);
-    const params = [sub.clientId, uuidv1(), newp.messageId, newp.brokerId, newp.brokerCounter, newp.cmd, newp.topic, newp.qos, newp.retain, newp.dup, wp.payload, wp.type, that._opts.ttl.packets.outgoing];
+    const ref = uuidv1();
 
     batch.push({
-      query: "INSERT INTO outgoing (client_id, ref, message_id, broker_id, broker_counter, cmd, topic, qos, retain, dup, payload, payload_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) USING TTL ?",
-      params
+      query: "INSERT INTO outgoing (client_id, ref, packet) VALUES (?, ?, ?) USING TTL ?",
+      params: [
+        sub.clientId,
+        ref,
+        encodedPacket,
+        that._opts.ttl.packets.outgoing
+      ]
     });
 
-    if (newp.messageId != null) {
-      batch.push({
-        query: "INSERT INTO outgoing_by_message_id (client_id, ref, message_id, broker_id, broker_counter, cmd, topic, qos, retain, dup, payload, payload_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) USING TTL ?",
-        params
-      });
-    }
-
-    if (newp.brokerId != null && newp.brokerCounter != null) {
-      batch.push({
-        query: "INSERT INTO outgoing_by_broker (client_id, ref, message_id, broker_id, broker_counter, cmd, topic, qos, retain, dup, payload, payload_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) USING TTL ?",
-        params
-      });
-    }
+    batch.push({
+      query: "INSERT INTO outgoing_by_broker (client_id, broker_id, broker_counter, ref, packet) VALUES (?, ?, ?, ?, ?) USING TTL ?",
+      params: [
+        sub.clientId,
+        packet.brokerId,
+        packet.brokerCounter,
+        ref,
+        encodedPacket,
+        that._opts.ttl.packets.outgoing
+      ]
+    });
   });
 
   this._client.batch(batch, { prepare: true }, function(err) {
@@ -439,35 +395,47 @@ async function updateWithMessageId(that, client, packet, cb) {
     return;
   }
 
-  const batch = [
-    {
-      query: "UPDATE outgoing_by_broker SET message_id = ? WHERE client_id = ? AND broker_id = ? AND broker_counter = ?",
-      params: [
-        packet.messageId,
-        client.id,
-        packet.brokerId,
-        packet.brokerCounter
-      ]
-    }
-  ];
+  const encodedPacket = msgpack.encode(packet);
+
+  const batch = [{
+    query: "INSERT INTO outgoing_by_broker (client_id, broker_id, broker_counter, ref, packet) VALUES (?, ?, ?, ?, ?) USING TTL ?",
+    params: [
+      client.id,
+      packet.brokerId,
+      packet.brokerCounter,
+      oldRow.ref,
+      encodedPacket,
+      that._opts.ttl.packets.outgoing
+    ]
+  }];
 
   if (oldRow.messageId != null && oldRow.message_id.toNumber() != packet.messageId) {
     batch.push({
       query: "DELETE FROM outgoing_by_message_id WHERE client_id = ? AND message_id = ?",
-      params: [oldRow.client_id, oldRow.message_id.toNumber()]
+      params: [
+        oldRow.client_id,
+        oldRow.message_id.toNumber()
+      ]
     });
   }
 
   const messageId = packet.messageId != null ? packet.messageId : (oldRow.message_id != null ? oldRow.message_id.toNumber() : null);
   batch.push({
-    query: "INSERT INTO outgoing_by_message_id (client_id, ref, message_id, broker_id, broker_counter, cmd, topic, qos, retain, dup, payload, payload_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) USING TTL ?",
-    params: [client.id, oldRow.ref, messageId, oldRow.broker_id, oldRow.broker_counter, oldRow.cmd, oldRow.topic, oldRow.qos, oldRow.retain, oldRow.dup, oldRow.payload, oldRow.payload_type, that._opts.ttl.packets.outgoing]
-  }, {
-    query: "UPDATE outgoing SET message_id = ? WHERE client_id = ? AND ref = ?",
+    query: "INSERT INTO outgoing_by_message_id (client_id, message_id, ref, packet) VALUES (?, ?, ?, ?) USING TTL ?",
     params: [
-      packet.messageId,
       client.id,
-      oldRow.ref
+      messageId,
+      oldRow.ref,
+      encodedPacket,
+      that._opts.ttl.packets.outgoing
+    ]
+  }, {
+    query: "INSERT INTO outgoing (client_id, ref, packet) VALUES (?, ?, ?) USING TTL ?",
+    params: [
+      client.id,
+      oldRow.ref,
+      encodedPacket,
+      that._opts.ttl.packets.outgoing
     ]
   });
 
@@ -488,30 +456,52 @@ async function updatePacket(that, client, packet, cb) {
     return;
   }
 
-  const brokerId = packet.brokerId != null ? packet.brokerId : oldRow.broker_id;
-  const brokerCounter = packet.brokerCounter != null ? packet.brokerCounter : (oldRow.broker_counter != null ? oldRow.broker_counter.toNumber() : null);
-  const wp = wrapPayload(packet.payload);
-  const params = [client.id, oldRow.ref, packet.messageId, brokerId, brokerCounter, packet.cmd, packet.topic, packet.qos, packet.retain, packet.dup, wp.payload, wp.type, that._opts.ttl.packets.outgoing];
+  const decodedPacket = decodeRow(oldRow);
+  const encodedPacket = msgpack.encode(packet);
 
   const batch = [{
-    query: "INSERT INTO outgoing_by_message_id (client_id, ref, message_id, broker_id, broker_counter, cmd, topic, qos, retain, dup, payload, payload_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) USING TTL ?",
-    params
+    query: "INSERT INTO outgoing_by_message_id (client_id, message_id, ref, packet) VALUES (?, ?, ?, ?) USING TTL ?",
+    params: [
+      client.id,
+      packet.messageId,
+      oldRow.ref,
+      encodedPacket,
+      that._opts.ttl.packets.outgoing
+    ]
   }, {
-    query: "INSERT INTO outgoing (client_id, ref, message_id, broker_id, broker_counter, cmd, topic, qos, retain, dup, payload, payload_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) USING TTL ?",
-    params
+    query: "INSERT INTO outgoing (client_id, ref, packet) VALUES (?, ?, ?) USING TTL ?",
+    params: [
+      client.id,
+      oldRow.ref,
+      encodedPacket,
+      that._opts.ttl.packets.outgoing
+    ]
   }];
 
-  if (oldRow.broker_id!= null && oldRow.broker_counter != null && (oldRow.broker_id != packet.brokerId || oldRow.broker_counter.toNumber() != packet.brokerCounter)) {
+  if (decodedPacket.brokerId!= null && decodedPacket.brokerCounter != null && (decodedPacket.brokerId != packet.brokerId || decodedPacket.brokerCounter != packet.brokerCounter)) {
     batch.push({
       query: "DELETE FROM outgoing_by_broker WHERE client_id = ? AND broker_id = ? AND broker_counter = ?",
-      params: [oldRow.client_id, oldRow.broker_id, oldRow.broker_counter.toNumber()]
+      params: [
+        client.id,
+        decodedPacket.brokerId,
+        decodedPacket.brokerCounter
+      ]
     });
   }
 
-  batch.push({
-    query: "INSERT INTO outgoing_by_broker (client_id, ref, message_id, broker_id, broker_counter, cmd, topic, qos, retain, dup, payload, payload_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) USING TTL ?",
-    params
-  });
+  if (packet.brokerId != null && packet.brokerCounter != null) {
+    batch.push({
+      query: "INSERT INTO outgoing_by_broker (client_id, broker_id, broker_counter, ref, packet) VALUES (?, ?, ?, ?, ?) USING TTL ?",
+      params: [
+        client.id,
+        packet.brokerId,
+        packet.brokerCounter,
+        oldRow.ref,
+        encodedPacket,
+        that._opts.ttl.packets.outgoing
+      ]
+    });
+  }
 
   that._client.batch(batch, { prepare: true }, function(err) {
     cb(err, client, packet);
