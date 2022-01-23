@@ -341,9 +341,8 @@ CassandraPersistence.prototype.outgoingEnqueueCombi = function(subs, packet, cb)
   const encodedPacket = msgpack.encode(new Packet(packet));
 
   const that = this;
-  const batch = [];
-  subs.map(function(sub) {
-    batch.push({
+  const batch = subs.map(function(sub) {
+    return {
       query: "INSERT INTO outgoing_by_broker (client_id, broker_id, broker_counter, packet) VALUES (?, ?, ?, ?) USING TTL ?",
       params: [
         sub.clientId,
@@ -352,7 +351,7 @@ CassandraPersistence.prototype.outgoingEnqueueCombi = function(subs, packet, cb)
         encodedPacket,
         that._opts.ttl.packets.outgoing
       ]
-    });
+    };
   });
 
   this._client.batch(batch, { prepare: true }, function(err) {
