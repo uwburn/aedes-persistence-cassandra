@@ -343,7 +343,7 @@ CassandraPersistence.prototype.outgoingEnqueueCombi = function(subs, packet, cb)
 
   const that = this;
   const batch = [];
-  subs.map(function(sub) {
+  subs.forEach(function(sub) {
     const ref = uuidv1();
 
     batch.push({
@@ -391,7 +391,7 @@ async function updateWithMessageId(that, client, packet, cb) {
 
   const oldRow = result.rows[0];
   if (oldRow == null) {
-    cb(new Error("Existing outgoing message not found"));
+    cb(new Error("Existing outgoing message not found"), client, packet);
     return;
   }
 
@@ -452,7 +452,7 @@ async function updatePacket(that, client, packet, cb) {
 
   const oldRow = result.rows[0];
   if (oldRow == null) {
-    cb(new Error("Existing outgoing message not found"));
+    cb(new Error("Existing outgoing message not found"), client, packet);
     return;
   }
 
@@ -612,7 +612,7 @@ CassandraPersistence.prototype.incomingGetPacket = function(client, packet, cb) 
     const row = result.rows[0];
 
     if (row == null) {
-      cb(new Error("packet not found"), null, client);
+      cb(new Error("Existing incoming message not found"), null, client);
       return;
     }
 
