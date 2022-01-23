@@ -702,10 +702,10 @@ CassandraPersistence.prototype.delWill = function(client, cb) {
 CassandraPersistence.prototype.streamWill = function(brokers) {
   const stream = this._client.stream("SELECT * FROM last_will", [], { prepare: true });
 
-  const brokerIds = Object.keys(brokers);
+  const brokerIds = brokers != null ? Object.keys(brokers) : null;
 
   return pump(stream, through.obj(function(row, enc, cb) {
-    if (brokerIds.includes(row.broker_id)) {
+    if (brokerIds != null && brokerIds.includes(row.broker_id)) {
       cb(null);
       return;
     }
