@@ -78,6 +78,16 @@ function asPacket(row) {
 
   return packet;
 }
+
+function asLastWill(row) {
+  return {
+    clientId: row.client_id,
+    brokerId: row.broker_id,
+    topic: row.topic,
+    payload: parsePayload(row),
+    qos: row.qos,
+    retain: row.retain
+  };
 }
 
 function CassandraPersistence(opts) {
@@ -736,7 +746,7 @@ CassandraPersistence.prototype.getWill = function(client, cb) {
       return;
     }
 
-    cb(null, asPacket(result.rows[0]), client);
+    cb(null, asLastWill(result.rows[0]), client);
   });
 };
 
@@ -765,7 +775,7 @@ CassandraPersistence.prototype.streamWill = function(brokers) {
       return;
     }
 
-    cb(null, asPacket(row));
+    cb(null, asLastWill(row));
   }));
 };
 
