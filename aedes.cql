@@ -21,13 +21,7 @@ CREATE TABLE subscription_qos12(
 
 CREATE TABLE retained(
 	topic TEXT,
-	broker_id TEXT,
-	broker_counter BIGINT,
-	cmd TEXT,
-	dup BOOLEAN,
-	qos INT,
-	payload BLOB,
-	payload_type TEXT,
+	packet BLOB,
 	PRIMARY KEY(topic)
 );
 

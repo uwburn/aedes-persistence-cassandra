@@ -6,8 +6,9 @@ const Packet = CachedPersistence.Packet;
 const cassandra = require("cassandra-driver");
 const pump = require("pump");
 const through = require("through2");
-const Qlobber = require("qlobber").Qlobber;
+const QlobberTrue = require("qlobber").QlobberTrue;
 const uuidv1 = require("uuid").v1;
+const msgpack = require("msgpack-lite");
 
 const qlobberOpts = {
   separator: "/",
@@ -120,8 +121,6 @@ function CassandraPersistence(opts) {
   this._opts.ttl = ttl;
   this._shutdownClient = false;
   this._client = null;
-  this.retainedQueue = []; // used for storing retained packets with ordered bulks
-  this.executing = false; // used as lock while a bulk is executing
 
   CachedPersistence.call(this, opts);
 }
@@ -170,69 +169,24 @@ CassandraPersistence.prototype.storeRetained = function(packet, cb) {
     return;
   }
 
-  this.retainedQueue.push({ packet, cb });
-  processRetained(this);
+  if (packet.payload.length === 0) {
+    this._client.execute("DELETE FROM retained WHERE topic = ?", [
+      packet.topic
+    ], cb);
+  }
+  else {
+    this._client.execute("INSERT INTO retained (topic, packet) VALUES (?, ?)", [
+      packet.topic,
+      msgpack.encode(packet)
+    ], { prepare: true }, cb);
+  }
 };
 
-async function processRetained(that) {
-  if (!that.executing && that.retainedQueue.length > 0) {
-    that.executing = true;
-    const batch = [];
-    const onEnd = [];
-
-    while (that.retainedQueue.length) {
-      const p = that.retainedQueue.shift();
-      onEnd.push(p.cb);
-
-      if (p.packet.payload.length > 0) {
-        const wp = wrapPayload(p.packet.payload);
-
-        batch.push({
-          query: "INSERT INTO retained (topic, broker_id, broker_counter, cmd, dup, qos, payload, payload_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?) USING TTL ?",
-          params: [
-            p.packet.topic,
-            p.packet.brokerId,
-            p.packet.brokerCounter,
-            p.packet.cmd,
-            p.packet.dup,
-            p.packet.qos,
-            wp.payload,
-            wp.type,
-            that._opts.ttl.packets.retained
-          ]
-        });
-      }
-      else {
-        batch.push({
-          query: "DELETE FROM retained WHERE topic = ?",
-          params: [
-            p.packet.topic
-          ]
-        });
-      }
-    }
-
-    await that._client.batch(batch, { prepare: true });
-
-    while (onEnd.length) {
-      onEnd.shift().call();
-    }
-
-    that.executing = false;
-    processRetained(that);
-  }
-}
-
 function filterAndParseRetained(row, enc, cb) {
-  if (this.matcher.match(row.topic).length > 0) {
+  if (this.matcher.test(row.topic)) {
     this.push({
-      topic: row.topic,
-      brokerId: row.broker_id,
-      brokerCounter: row.broker_counter != null ? row.broker_counter.toNumber() : null,
-      cmd: row.cmd,
-      dup: row.dup,
-      qos: row.qos,
-      payload: row.payload
+      ...msgpack.decode(row.packet),
+      topic: row.topic
     });
   }
   cb();
@@ -244,10 +198,10 @@ CassandraPersistence.prototype.createRetainedStream = function(pattern) {
 
 CassandraPersistence.prototype.doCreateRetainedStream = function(patterns) {
   const filterAndParseStream = through.obj(filterAndParseRetained);
-  filterAndParseStream.matcher = new Qlobber(qlobberOpts);
+  filterAndParseStream.matcher = new QlobberTrue(qlobberOpts);
 
   for (let i = 0; i < patterns.length; i++) {
-    filterAndParseStream.matcher.add(patterns[i], true);
+    filterAndParseStream.matcher.add(patterns[i]);
   }
 
   return pump(
