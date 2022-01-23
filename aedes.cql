@@ -31,17 +31,9 @@ CREATE TABLE last_will(
 	PRIMARY KEY(client_id)
 );
 
-CREATE TABLE outgoing(
-	client_id TEXT,
-	ref UUID,
-	packet BLOB,
-	PRIMARY KEY(client_id, ref)
-);
-
 CREATE TABLE outgoing_by_message_id(
 	client_id TEXT,
 	message_id BIGINT,
-	ref UUID,
 	packet BLOB,
 	PRIMARY KEY(client_id, message_id)
 );
@@ -50,7 +42,6 @@ CREATE TABLE outgoing_by_broker(
 	client_id TEXT,
 	broker_id TEXT,
 	broker_counter BIGINT,
-	ref UUID,
 	packet BLOB,
 	PRIMARY KEY(client_id, broker_id, broker_counter)
 );

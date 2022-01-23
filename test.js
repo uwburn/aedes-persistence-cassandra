@@ -38,7 +38,6 @@ abs({
     await client.execute("TRUNCATE incoming");
     await client.execute("TRUNCATE last_will");
     await client.execute("TRUNCATE migration_history");
-    await client.execute("TRUNCATE outgoing");
     await client.execute("TRUNCATE outgoing_by_broker");
     await client.execute("TRUNCATE outgoing_by_message_id");
     await client.execute("TRUNCATE retained");
