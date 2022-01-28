@@ -23,20 +23,35 @@ CREATE TABLE retained(
 	topic TEXT,
 	packet BLOB,
 	PRIMARY KEY(topic)
-);
+) WITH gc_grace_seconds = 600
+  AND compaction = {
+		'compaction_window_size': '8', 
+    'compaction_window_unit': 'HOURS', 
+    'class': 'org.apache.cassandra.db.compaction.TimeWindowCompactionStrategy'
+	};
 
 CREATE TABLE last_will(
 	client_id TEXT,
 	packet BLOB,
 	PRIMARY KEY(client_id)
-);
+) WITH gc_grace_seconds = 600
+  AND compaction = {
+		'compaction_window_size': '8', 
+    'compaction_window_unit': 'HOURS', 
+    'class': 'org.apache.cassandra.db.compaction.TimeWindowCompactionStrategy'
+	};
 
 CREATE TABLE outgoing(
 	client_id TEXT,
 	ref UUID,
 	packet BLOB,
 	PRIMARY KEY(client_id, ref)
-);
+) WITH gc_grace_seconds = 600
+  AND compaction = {
+		'compaction_window_size': '8', 
+    'compaction_window_unit': 'HOURS', 
+    'class': 'org.apache.cassandra.db.compaction.TimeWindowCompactionStrategy'
+	};
 
 CREATE TABLE outgoing_by_message_id(
 	client_id TEXT,
@@ -44,7 +59,12 @@ CREATE TABLE outgoing_by_message_id(
 	ref UUID,
 	packet BLOB,
 	PRIMARY KEY(client_id, message_id)
-);
+) WITH gc_grace_seconds = 600
+  AND compaction = {
+		'compaction_window_size': '8', 
+    'compaction_window_unit': 'HOURS', 
+    'class': 'org.apache.cassandra.db.compaction.TimeWindowCompactionStrategy'
+	};
 
 CREATE TABLE outgoing_by_broker(
 	client_id TEXT,
@@ -53,11 +73,21 @@ CREATE TABLE outgoing_by_broker(
 	ref UUID,
 	packet BLOB,
 	PRIMARY KEY(client_id, broker_id, broker_counter)
-);
+) WITH gc_grace_seconds = 600
+  AND compaction = {
+		'compaction_window_size': '8', 
+    'compaction_window_unit': 'HOURS', 
+    'class': 'org.apache.cassandra.db.compaction.TimeWindowCompactionStrategy'
+	};
 
 CREATE TABLE incoming(
 	client_id TEXT,
 	message_id BIGINT,
 	packet BLOB,
 	PRIMARY KEY(client_id, message_id)
-);
+) WITH gc_grace_seconds = 600
+  AND compaction = {
+		'compaction_window_size': '8', 
+    'compaction_window_unit': 'HOURS', 
+    'class': 'org.apache.cassandra.db.compaction.TimeWindowCompactionStrategy'
+	};
