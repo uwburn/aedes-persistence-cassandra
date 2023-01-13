@@ -90,7 +90,7 @@ CassandraPersistence.prototype._setup = function() {
   }
   else {
     const defaultOpts = { contactPoints: ["localhost:9042"], localDataCenter: "datacenter1", keyspace: "aedes" };
-    const cassandraOpts = that._opts.cassandra ? Object.assign(defaultOpts, that._opts.kafka) : defaultOpts;
+    const cassandraOpts = that._opts.cassandra ? Object.assign(defaultOpts, that._opts.cassandra) : defaultOpts;
 
     that._shutdownClient = true;
     that._client = new cassandra.Client(cassandraOpts);
