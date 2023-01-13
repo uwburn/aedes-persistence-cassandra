@@ -4,7 +4,19 @@
 
 See [aedes-persistence][persistence] for the full API, and [Aedes][aedes] for usage.
 
-_**NOTE**: preliminary version, WIP._
+## Disclaimer
+
+Be sure to understand applicability and limitations before using this package in production.
+
+In most cases [aedes-persistence-mongodb](https://github.com/moscajs/aedes-persistence-mongodb) should be considered a better alternative to this.
+
+Please understand that Cassandra is not suited for implementing queues as in most cases this results in reading lots of tombstones ([cassandra-anti-patterns-queues-and-queue-datasets](https://www.datastax.com/blog/cassandra-anti-patterns-queues-and-queue-datasets)).
+
+This package is suitable when:
+
+* You have a small sets of subscriptions with low traffic
+* You already have a deployed Cassandra cluster and can't afford to deploy another persistence solution (e.g. MongoDB or Redis)
+* You are regularly performing compactions/repair on the used keyspace
 
 ## Install
 
