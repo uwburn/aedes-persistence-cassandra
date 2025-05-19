@@ -1,7 +1,7 @@
 "use strict";
 
-const test = require("tape").test;
-const CassandraPersistence = require("./persistence-cassandra");
+const { test } = require("node:test");
+const CassandraPersistence = require("./persistence");
 let abs = require("aedes-persistence/abstract");
 const CassandraShift = require("cassandra-shift");
 const cassandra = require("cassandra-driver");
@@ -12,7 +12,7 @@ let init = true;
 
 abs({
   test: test,
-  persistence: async function(cb) {
+  persistence: async function() {
     if (init) {
       await client.execute("DROP KEYSPACE IF EXISTS aedes");
 
@@ -50,11 +50,11 @@ abs({
       client
     });
 
-    cb(null, persistence);
+    return persistence;
   }
 });
 
-test.onFinish(async function() {
+test.after(async function() {
   await client.execute("DROP KEYSPACE IF EXISTS aedes");
 
   process.exit(0);

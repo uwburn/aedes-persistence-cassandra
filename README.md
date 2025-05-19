@@ -27,7 +27,7 @@ npm install aedes aedes-persistence-cassandra --save
 or
 
 ```bash
-yarn add mqemitter-kafka aedes-persistence-cassandra
+yarn add aedes aedes-persistence-cassandra
 ```
 
 Target keyspace must be initialized with `aedes.cql` script.
