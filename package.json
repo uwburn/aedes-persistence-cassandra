@@ -2,7 +2,7 @@
   "name": "aedes-persistence-cassandra",
   "version": "0.3.0",
   "description": "Cassandra persistence for Aedes",
-  "main": "persistence-cassandra.js",
+  "main": "persistence.js",
   "scripts": {
     "lint": "eslint",
     "lint:fix": "eslint --fix",
